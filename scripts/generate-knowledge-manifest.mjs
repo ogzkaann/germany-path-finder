@@ -158,7 +158,6 @@ for (const filePath of files) {
 
 const manifest = {
   version: "1.0.0",
-  generatedAt: new Date().toISOString(),
   lastUpdated: today(),
   sourceRoot: "/knowledge",
   sources,

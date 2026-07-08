@@ -1,6 +1,20 @@
 {
   "name": "germany-path-finder",
   "version": "0.1.0",
+  "description": "Local-first RAG portfolio MVP for source-backed residence and career path exploration in Germany.",
+  "homepage": "https://github.com/ogzkaann/germany-path-finder#readme",
+  "keywords": [
+    "rag",
+    "local-first",
+    "react",
+    "vite",
+    "typescript",
+    "indexeddb",
+    "pdfjs",
+    "byok",
+    "germany",
+    "portfolio"
+  ],
   "private": true,
   "type": "module",
   "scripts": {

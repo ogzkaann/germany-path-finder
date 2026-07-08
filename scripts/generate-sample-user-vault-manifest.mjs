@@ -93,7 +93,6 @@ const sources = files.map((filePath) => {
 
 const manifest = {
   version: "1.0.0",
-  generatedAt: new Date().toISOString(),
   lastUpdated: today(),
   sourceRoot: "/sample-user-vault",
   sources,
