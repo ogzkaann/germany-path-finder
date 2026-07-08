@@ -43,6 +43,7 @@ interface CommandCenterProps {
   progress?: ProgressState;
   manifest?: KnowledgeManifest;
   indexedSourceIds: string[];
+  indexedChunkCount: number;
   settings: AppSettings;
   onNavigate: (view: CommandView) => void;
   onDataChange: () => void;
@@ -82,6 +83,7 @@ export function CommandCenter({
   progress,
   manifest,
   indexedSourceIds,
+  indexedChunkCount,
   settings,
   onNavigate,
   onDataChange,
@@ -102,7 +104,10 @@ export function CommandCenter({
   );
   const topPaths = evaluations.slice(0, 3);
   const availableSources = manifest?.sources.filter((source) => source.status === "available").length ?? 0;
-  const ownerActionSources = manifest?.sources.filter((source) => source.status !== "available").length ?? 0;
+  const indexedAvailableSources =
+    manifest?.sources.filter((source) => source.status === "available" && indexedSourceIds.includes(source.id)).length ??
+    indexedSourceIds.length;
+  const failedSourceCount = indexResults.filter((result) => result.state === "failed" || result.state === "missing").length;
   const checklistDone = progress?.checklist.filter((item) => item.done).length ?? 0;
 
   async function handleIndexAll() {
@@ -122,13 +127,31 @@ export function CommandCenter({
 
   async function handleAsk() {
     setAsking(true);
-    const officialChunks = await listPublicOfficialChunks();
-    const retrieved = retrieveChunks(question, officialChunks, 6);
-    onCitations(retrieved);
-    onAnalysis(buildRagAnalysis(question, retrieved));
-    const nextAnswer = await answerWithRetrievedSources(question, retrieved, profile, settings, officialChunks.length);
-    setAnswer(nextAnswer);
-    setAsking(false);
+    try {
+      const officialChunks = await listPublicOfficialChunks();
+      const retrieved = retrieveChunks(question, officialChunks, 6);
+      const nextAnswer = await answerWithRetrievedSources(question, retrieved, profile, settings, officialChunks.length);
+      const nextAnalysis = buildRagAnalysis(question, nextAnswer.citations);
+      onCitations(nextAnswer.citations);
+      onAnalysis(nextAnalysis);
+      setAnswer(nextAnswer);
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  async function retryAiExplanation() {
+    if (!answer) return;
+    setAsking(true);
+    try {
+      const nextAnswer = await answerWithRetrievedSources(answer.question, answer.citations, profile, settings, answer.citations.length);
+      const nextAnalysis = buildRagAnalysis(answer.question, nextAnswer.citations);
+      onCitations(nextAnswer.citations);
+      onAnalysis(nextAnalysis);
+      setAnswer(nextAnswer);
+    } finally {
+      setAsking(false);
+    }
   }
 
   return (
@@ -267,18 +290,24 @@ export function CommandCenter({
               </div>
             </CardHeader>
             <CardContent className="grid gap-3 p-4 pt-2">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 <div className="rounded-md border border-border bg-slate-50 p-3">
-                  <p className="text-xs text-muted-foreground">Available files</p>
+                  <p className="text-xs text-muted-foreground">Available sources</p>
                   <p className="text-lg font-semibold">{availableSources}</p>
                 </div>
                 <div className="rounded-md border border-border bg-slate-50 p-3">
-                  <p className="text-xs text-muted-foreground">Indexed</p>
-                  <p className="text-lg font-semibold">{indexedSourceIds.length}</p>
+                  <p className="text-xs text-muted-foreground">Indexed sources</p>
+                  <p className="text-lg font-semibold">
+                    {indexedAvailableSources}/{availableSources}
+                  </p>
                 </div>
                 <div className="rounded-md border border-border bg-slate-50 p-3">
-                  <p className="text-xs text-muted-foreground">Owner action</p>
-                  <p className="text-lg font-semibold">{ownerActionSources}</p>
+                  <p className="text-xs text-muted-foreground">Indexed chunks</p>
+                  <p className="text-lg font-semibold">{indexedChunkCount}</p>
+                </div>
+                <div className="rounded-md border border-border bg-slate-50 p-3">
+                  <p className="text-xs text-muted-foreground">Failed sources</p>
+                  <p className="text-lg font-semibold">{failedSourceCount}</p>
                 </div>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">
@@ -320,12 +349,16 @@ export function CommandCenter({
               </div>
               {answer ? (
                 <div className="grid gap-2">
+                  <p className="text-xs font-semibold text-foreground">{answer.statusLabel}</p>
                   {answer.warning ? (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs leading-5 text-amber-950">
-                      {answer.warning} RAG retrieval worked.
+                    <div className="grid gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs leading-5 text-amber-950">
+                      <p>{answer.warning}</p>
+                      <Button variant="outline" size="sm" className="w-fit" onClick={retryAiExplanation} disabled={asking}>
+                        Retry AI Explanation
+                      </Button>
                     </div>
                   ) : null}
-                  <p className="line-clamp-3 rounded-md bg-slate-50 p-3 text-xs leading-5 text-muted-foreground">{answer.answer}</p>
+                  <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-3 font-sans text-xs leading-5 text-muted-foreground">{answer.answer}</pre>
                 </div>
               ) : null}
             </CardContent>

@@ -18,7 +18,7 @@ import type {
 } from "./domain/types";
 import { loadSettings } from "./ai/settings";
 import { loadKnowledgeManifest } from "./rag/manifest";
-import { getIndexedSourceIds, getProfile, getProgress, listDocuments } from "./storage/repository";
+import { getOfficialIndexStats, getProfile, getProgress, listDocuments } from "./storage/repository";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SourcePanel, SourcePanelContent } from "./components/SourcePanel";
 import { Button } from "./components/ui/button";
@@ -45,20 +45,22 @@ export default function App() {
   const [documents, setDocuments] = useState<StoredDocument[]>([]);
   const [progress, setProgress] = useState<ProgressState>();
   const [indexedSourceIds, setIndexedSourceIds] = useState<string[]>([]);
+  const [indexedChunkCount, setIndexedChunkCount] = useState(0);
   const [citations, setCitations] = useState<RetrievedChunk[]>([]);
   const [analysis, setAnalysis] = useState<RagAnalysisState>();
 
   const refreshLocalData = useCallback(async () => {
-    const [nextProfile, nextDocuments, nextProgress, nextIndexedIds] = await Promise.all([
+    const [nextProfile, nextDocuments, nextProgress, nextIndexStats] = await Promise.all([
       getProfile(),
       listDocuments(),
       getProgress(),
-      getIndexedSourceIds(),
+      getOfficialIndexStats(),
     ]);
     setProfile(nextProfile);
     setDocuments(nextDocuments);
     setProgress(nextProgress);
-    setIndexedSourceIds(nextIndexedIds);
+    setIndexedSourceIds(nextIndexStats.indexedSourceIds);
+    setIndexedChunkCount(nextIndexStats.indexedChunkCount);
   }, []);
 
   const updateCitations = useCallback((next: RetrievedChunk[]) => {
@@ -91,6 +93,7 @@ export default function App() {
             progress={progress}
             manifest={manifest}
             indexedSourceIds={indexedSourceIds}
+            indexedChunkCount={indexedChunkCount}
             settings={settings}
             onNavigate={(view) => setActiveView(view)}
             onDataChange={refreshLocalData}

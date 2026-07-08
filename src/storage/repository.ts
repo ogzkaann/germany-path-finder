@@ -1,6 +1,14 @@
 import type { ProgressState, Profile, SourceChunk, StoredDocument } from "../domain/types";
 import { db } from "./db";
 
+function isPublicOfficialChunk(chunk: SourceChunk) {
+  return (
+    chunk.metadata?.source_type === "official_knowledge" &&
+    chunk.metadata.official === true &&
+    chunk.metadata.user_scope === "public"
+  );
+}
+
 export async function getProfile() {
   return db.profiles.get("local-profile");
 }
@@ -30,12 +38,7 @@ export async function listChunks(kind?: "official" | "user") {
 
 export async function listPublicOfficialChunks() {
   const chunks = await db.chunks.where("kind").equals("official").toArray();
-  return chunks.filter(
-    (chunk) =>
-      chunk.metadata?.source_type === "official_knowledge" &&
-      chunk.metadata.official === true &&
-      chunk.metadata.user_scope === "public",
-  );
+  return chunks.filter(isPublicOfficialChunk);
 }
 
 export async function listPrivateUserChunks() {
@@ -52,6 +55,16 @@ export async function replaceChunksForSource(sourceId: string, chunks: SourceChu
   });
 }
 
+export async function clearPublicOfficialChunks() {
+  await db.transaction("rw", db.chunks, async () => {
+    const chunks = await db.chunks.where("kind").equals("official").toArray();
+    const ids = chunks.filter(isPublicOfficialChunk).map((chunk) => chunk.id);
+    if (ids.length > 0) {
+      await db.chunks.bulkDelete(ids);
+    }
+  });
+}
+
 export async function replaceChunksForDocument(documentId: string, chunks: SourceChunk[]) {
   await db.transaction("rw", db.chunks, async () => {
     await db.chunks.where("documentId").equals(documentId).delete();
@@ -64,6 +77,16 @@ export async function replaceChunksForDocument(documentId: string, chunks: Sourc
 export async function getIndexedSourceIds() {
   const chunks = await listPublicOfficialChunks();
   return Array.from(new Set(chunks.map((chunk) => chunk.sourceId)));
+}
+
+export async function getOfficialIndexStats() {
+  const chunks = await listPublicOfficialChunks();
+  const indexedSourceIds = Array.from(new Set(chunks.map((chunk) => chunk.sourceId)));
+  return {
+    indexedSourceIds,
+    indexedSourceCount: indexedSourceIds.length,
+    indexedChunkCount: chunks.length,
+  };
 }
 
 export async function getProgress() {

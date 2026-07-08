@@ -22,6 +22,24 @@ const sampleQuestions = [
   "What are my risky points based on my profile?",
 ];
 
+function profileContextSummary(profile?: Profile) {
+  if (!profile) return "No saved local profile.";
+
+  return [
+    `Current status: ${profile.currentStatus || "not set"}`,
+    `Location: ${profile.city || "unknown city"} / ${profile.state || "unknown state"}`,
+    `German level: ${profile.germanLevel || "not set"}`,
+    `Goal: ${profile.goal}`,
+    `Education: ${profile.educationBackground || "not set"}`,
+    `Work experience: ${profile.workExperience || "not set"}`,
+  ].join("\n");
+}
+
+function citationLocation(citation: RetrievedChunk) {
+  const page = typeof citation.pageNumber === "number" ? `page ${citation.pageNumber}` : "manual/no page";
+  return `${citation.fileName} / ${page} / chunk ${citation.chunkIndex}`;
+}
+
 export function AskPage({ profile, settings, onCitations, onAnalysis }: AskPageProps) {
   const [question, setQuestion] = useState(sampleQuestions[0]);
   const [answer, setAnswer] = useState<RagAnswer | null>(null);
@@ -30,15 +48,33 @@ export function AskPage({ profile, settings, onCitations, onAnalysis }: AskPageP
 
   async function ask() {
     setBusy(true);
-    const officialChunks = await listPublicOfficialChunks();
-    const retrieved = retrieveChunks(question, officialChunks, 7);
-    const nextAnalysis = buildRagAnalysis(question, retrieved);
-    onCitations(retrieved);
-    onAnalysis(nextAnalysis);
-    setLastAnalysis(nextAnalysis);
-    const nextAnswer = await answerWithRetrievedSources(question, retrieved, profile, settings, officialChunks.length);
-    setAnswer(nextAnswer);
-    setBusy(false);
+    try {
+      const officialChunks = await listPublicOfficialChunks();
+      const retrieved = retrieveChunks(question, officialChunks, 7);
+      const nextAnalysis = buildRagAnalysis(question, retrieved);
+      onCitations(retrieved);
+      onAnalysis(nextAnalysis);
+      setLastAnalysis(nextAnalysis);
+      const nextAnswer = await answerWithRetrievedSources(question, retrieved, profile, settings, officialChunks.length);
+      setAnswer(nextAnswer);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryAiExplanation() {
+    if (!answer) return;
+    setBusy(true);
+    try {
+      const nextAnswer = await answerWithRetrievedSources(answer.question, answer.citations, profile, settings, answer.citations.length);
+      const nextAnalysis = buildRagAnalysis(answer.question, nextAnswer.citations);
+      onCitations(nextAnswer.citations);
+      onAnalysis(nextAnalysis);
+      setLastAnalysis(nextAnalysis);
+      setAnswer(nextAnswer);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -104,56 +140,99 @@ export function AskPage({ profile, settings, onCitations, onAnalysis }: AskPageP
         </CardHeader>
         <CardContent>
           {answer ? (
-            <div className="grid gap-4">
-              {answer.warning ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                  <div>
-                    <p className="font-semibold">{answer.warning}</p>
-                    <p className="mt-1 text-xs leading-5">
-                      RAG retrieval worked. AI explanation failed because the selected provider is unavailable.
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={ask} disabled={busy}>
-                    Retry AI answer
-                  </Button>
-                </div>
-              ) : null}
-              {lastAnalysis ? (
-                <div className="grid gap-3 rounded-lg border border-border bg-slate-50 p-4 text-sm">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="font-semibold text-foreground">
-                      Retrieved sources: {lastAnalysis.evidenceCoverage.retrievedSourceCount}
-                    </span>
-                    <span className="text-muted-foreground">
-                      Categories: {lastAnalysis.evidenceCoverage.categoriesUsed.join(", ") || "none"}
+            <div className="max-h-[65vh] overflow-y-auto pr-1 sm:max-h-[70vh] lg:max-h-[calc(100vh-220px)]">
+              <div className="grid gap-4">
+                <section
+                  className={
+                    answer.status === "not-found"
+                      ? "rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-950"
+                      : "rounded-lg border border-border bg-slate-50 p-4 text-sm leading-7 text-foreground"
+                  }
+                >
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">Answer summary</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{answer.statusLabel}</p>
+                    </div>
+                    <span className="rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+                      {answer.citations.length} citation chunk{answer.citations.length === 1 ? "" : "s"}
                     </span>
                   </div>
-                  {lastAnalysis.missingEvidence.length ? (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
-                      {lastAnalysis.evidenceCoverage.coveredConcepts.length ? (
-                        <p>Found evidence for {lastAnalysis.evidenceCoverage.coveredConcepts.join(", ")}.</p>
+                  <pre className="whitespace-pre-wrap break-words font-sans">{answer.answer}</pre>
+                </section>
+
+                {answer.warning ? (
+                  <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                    <div className="min-w-0">
+                      <p className="font-semibold">Provider warning</p>
+                      <p className="mt-1 text-xs leading-5">{answer.warning}</p>
+                      {answer.providerError ? (
+                        <p className="mt-1 break-words text-xs leading-5 text-amber-800">{answer.providerError}</p>
                       ) : null}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={retryAiExplanation} disabled={busy}>
+                      Retry AI Explanation
+                    </Button>
+                  </section>
+                ) : null}
+
+                <section className="rounded-lg border border-border bg-background p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">Evidence citations</p>
+                    {lastAnalysis ? (
+                      <p className="text-xs text-muted-foreground">
+                        {lastAnalysis.evidenceCoverage.retrievedSourceCount} source
+                        {lastAnalysis.evidenceCoverage.retrievedSourceCount === 1 ? "" : "s"} /{" "}
+                        {lastAnalysis.evidenceCoverage.categoriesUsed.join(", ") || "no categories"}
+                      </p>
+                    ) : null}
+                  </div>
+                  {answer.citations.length ? (
+                    <div className="mt-3 grid gap-2">
+                      {answer.citations.map((citation, index) => (
+                        <div key={citation.id} className="rounded-md border border-border bg-slate-50 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <p className="text-sm font-semibold text-foreground">C{index + 1}. {citation.title}</p>
+                            <span className="text-xs text-muted-foreground">score {citation.score.toFixed(1)}</span>
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{citation.authority}</p>
+                          <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                            {citation.metadata.category} / {citationLocation(citation)}
+                          </p>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-foreground">{citation.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">No retrieved official citations for this answer.</p>
+                  )}
+                </section>
+
+                <section className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-sm font-semibold text-foreground">Profile context</p>
+                  <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-xs leading-5 text-muted-foreground">{profileContextSummary(profile)}</pre>
+                </section>
+
+                <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+                  <p className="text-sm font-semibold">Missing evidence / official verification warning</p>
+                  {lastAnalysis?.evidenceCoverage.coveredConcepts.length ? (
+                    <p className="mt-2">Found evidence for {lastAnalysis.evidenceCoverage.coveredConcepts.join(", ")}.</p>
+                  ) : null}
+                  {lastAnalysis?.missingEvidence.length ? (
+                    <div className="mt-2 grid gap-1">
                       {lastAnalysis.missingEvidence.map((item) => (
                         <p key={item}>{item}</p>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">No missing evidence warning from retrieved citations.</p>
+                    <p className="mt-2">No missing evidence warning was detected from the retrieved citation set.</p>
                   )}
-                </div>
-              ) : null}
-              <div
-                className={
-                  answer.status === "not-found"
-                    ? "rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-950"
-                    : "rounded-lg border border-border bg-slate-50 p-4 text-sm leading-7 text-foreground"
-                }
-              >
-                <pre className="whitespace-pre-wrap font-sans">{answer.answer}</pre>
+                  <p className="mt-2 font-medium">
+                    Not legal advice. Official verification is still required before acting, and unsupported claims must
+                    be treated as not found in provided sources.
+                  </p>
+                </section>
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                {answer.citations.length} citation chunk{answer.citations.length === 1 ? "" : "s"} used / {answer.status}
-              </p>
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">

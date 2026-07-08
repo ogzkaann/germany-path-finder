@@ -42,21 +42,43 @@ export const providerPresets = {
   },
 } satisfies Record<AppSettings["providerId"], Omit<AppSettings, "apiKey"> & { disabled: boolean }>;
 
+export function normalizeSettings(settings: AppSettings): AppSettings {
+  const preset = providerPresets[settings.providerId];
+  const normalized: AppSettings = {
+    ...settings,
+    providerName: settings.providerName.trim() || preset.providerName,
+    endpoint: settings.endpoint.trim() || preset.endpoint,
+    apiKey: settings.apiKey.trim(),
+    model: settings.model.trim() || preset.model,
+  };
+
+  if (settings.providerId === "gemini") {
+    return {
+      ...normalized,
+      providerName: preset.providerName,
+      endpoint: preset.endpoint,
+    };
+  }
+
+  return normalized;
+}
+
 export function loadSettings(): AppSettings {
   const raw = localStorage.getItem(SETTINGS_KEY);
   if (!raw) return defaultSettings;
 
   try {
-    return appSettingsSchema.parse(JSON.parse(raw));
+    return normalizeSettings(appSettingsSchema.parse(JSON.parse(raw)));
   } catch {
     return defaultSettings;
   }
 }
 
 export function saveSettings(settings: AppSettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettings(settings)));
 }
 
 export function hasUsableAiSettings(settings: AppSettings) {
-  return Boolean(settings.endpoint.trim() && settings.apiKey.trim() && settings.model.trim());
+  const normalized = normalizeSettings(settings);
+  return Boolean(normalized.endpoint && normalized.apiKey && normalized.model);
 }

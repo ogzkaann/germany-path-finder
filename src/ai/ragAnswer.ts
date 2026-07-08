@@ -1,6 +1,7 @@
 import type { AppSettings, Profile, RagAnswer, RetrievedChunk } from "../domain/types";
 import { callOpenAICompatible } from "./client";
 import { hasUsableAiSettings } from "./settings";
+import { dedupeRetrievedCitations } from "../rag/retrieval";
 
 function citationLabel(chunk: RetrievedChunk, index: number) {
   const page = chunk.pageNumber ? `page ${chunk.pageNumber}` : "manual/no page";
@@ -48,6 +49,14 @@ function localSourcedAnswer(question: string, chunks: RetrievedChunk[], profile?
   return lines.join("\n");
 }
 
+function providerWarningForError(message: string) {
+  if (message.includes("Provider returned 503")) {
+    return "AI provider temporarily unavailable. Source retrieval still worked.";
+  }
+
+  return "AI explanation failed. Source retrieval still worked.";
+}
+
 export async function answerWithRetrievedSources(
   question: string,
   chunks: RetrievedChunk[],
@@ -55,7 +64,9 @@ export async function answerWithRetrievedSources(
   settings: AppSettings,
   officialChunkCount = chunks.length,
 ): Promise<RagAnswer> {
-  if (chunks.length === 0) {
+  const citations = dedupeRetrievedCitations(chunks);
+
+  if (citations.length === 0) {
     return {
       question,
       answer:
@@ -64,6 +75,7 @@ export async function answerWithRetrievedSources(
           : "Not found in provided sources.",
       citations: [],
       status: "not-found",
+      statusLabel: "No retrieved official evidence",
       createdAt: new Date().toISOString(),
     };
   }
@@ -71,14 +83,15 @@ export async function answerWithRetrievedSources(
   if (!hasUsableAiSettings(settings)) {
     return {
       question,
-      answer: localSourcedAnswer(question, chunks, profile),
-      citations: chunks,
+      answer: localSourcedAnswer(question, citations, profile),
+      citations,
       status: "answered",
+      statusLabel: "RAG retrieval succeeded / AI explanation not configured",
       createdAt: new Date().toISOString(),
     };
   }
 
-  const sourcePacket = chunks
+  const sourcePacket = citations
     .map((chunk, index) => `${citationLabel(chunk, index)}\n${chunk.text}`)
     .join("\n\n---\n\n");
 
@@ -98,19 +111,22 @@ export async function answerWithRetrievedSources(
     return {
       question,
       answer,
-      citations: chunks,
+      citations,
       status: "answered",
+      statusLabel: "RAG + AI explanation succeeded",
       createdAt: new Date().toISOString(),
     };
   } catch (error) {
     const providerError = error instanceof Error ? error.message : "Unknown error";
+    const warning = providerWarningForError(providerError);
     return {
       question,
-      answer: `${localSourcedAnswer(question, chunks, profile)}\n\nRAG retrieval worked. AI explanation failed because the selected provider is unavailable.`,
-      citations: chunks,
-      warning: "AI provider unavailable. Showing source retrieval fallback.",
+      answer: localSourcedAnswer(question, citations, profile),
+      citations,
+      warning,
       providerError,
       status: "answered",
+      statusLabel: "RAG retrieval succeeded / AI explanation failed",
       createdAt: new Date().toISOString(),
     };
   }

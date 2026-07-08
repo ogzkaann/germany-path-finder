@@ -200,6 +200,7 @@ export interface RagAnswer {
   warning?: string;
   providerError?: string;
   status: "answered" | "not-found" | "error";
+  statusLabel: string;
   createdAt: string;
 }
 

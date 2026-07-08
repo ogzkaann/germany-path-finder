@@ -8,6 +8,23 @@ function normalizeText(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+export function stableTextHash(text: string) {
+  const normalized = normalizeText(text).toLowerCase();
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+function stableOfficialChunkId(sourceId: string, pageNumber: number | undefined, chunkIndex: number, text: string) {
+  const pageKey = pageNumber ?? "manual";
+  return `${sourceId}::p${pageKey}::c${chunkIndex}::${stableTextHash(text)}`;
+}
+
 function splitWords(text: string) {
   return normalizeText(text).split(" ").filter(Boolean);
 }
@@ -35,7 +52,7 @@ export function createOfficialChunks(source: KnowledgeSource, pages: ExtractedPd
     return chunks.map((text) => {
       const currentChunkIndex = chunkIndex++;
       return {
-        id: crypto.randomUUID(),
+        id: stableOfficialChunkId(source.id, page.pageNumber, currentChunkIndex, text),
         sourceId: source.id,
         kind: "official" as const,
         title: source.title,
@@ -70,7 +87,7 @@ export function createOfficialChunks(source: KnowledgeSource, pages: ExtractedPd
 export function createManualOfficialChunks(source: KnowledgeSource, text: string): SourceChunk[] {
   const fileName = `${source.id}-manual-text`;
   return chunkWords(splitWords(text)).map((chunkText, chunkIndex) => ({
-    id: crypto.randomUUID(),
+    id: stableOfficialChunkId(source.id, undefined, chunkIndex, chunkText),
     sourceId: source.id,
     kind: "official" as const,
     title: source.title,

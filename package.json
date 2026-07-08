@@ -2,7 +2,7 @@
   "name": "germany-path-finder",
   "version": "0.1.0",
   "description": "Local-first RAG portfolio MVP for source-backed residence and career path exploration in Germany.",
-  "homepage": "https://github.com/ogzkaann/germany-path-finder#readme",
+  "homepage": "https://germany-path-finder.vercel.app/",
   "keywords": [
     "rag",
     "local-first",

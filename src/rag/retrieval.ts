@@ -1,4 +1,5 @@
 import type { RetrievedChunk, SourceChunk } from "../domain/types";
+import { stableTextHash } from "./chunking";
 
 const stopWords = new Set([
   "a",
@@ -77,29 +78,65 @@ export function expandQuery(query: string) {
   return `${query} ${additions.join(" ")}`;
 }
 
+const preferredCategoryOrder = [
+  "official-law",
+  "official-portals",
+  "local-duesseldorf",
+  "recognition",
+  "language-integration",
+];
+
 function categoryPriority(category: string) {
-  if (category === "official-law") return 0;
-  if (category === "official-portals") return 1;
-  if (category === "local-duesseldorf") return 2;
-  return 3;
+  const index = preferredCategoryOrder.indexOf(category);
+  return index === -1 ? preferredCategoryOrder.length : index;
+}
+
+function citationDedupeKey(chunk: RetrievedChunk) {
+  const pageKey = chunk.pageNumber ?? "manual";
+  return `${chunk.sourceId}::p${pageKey}::c${chunk.chunkIndex}::${stableTextHash(chunk.text)}`;
+}
+
+export function dedupeRetrievedCitations(chunks: RetrievedChunk[]) {
+  const seen = new Set<string>();
+  const deduped: RetrievedChunk[] = [];
+
+  for (const chunk of chunks) {
+    const key = citationDedupeKey(chunk);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(chunk);
+  }
+
+  return deduped;
 }
 
 function diversifyChunks(chunks: RetrievedChunk[], limit: number) {
   const selected: RetrievedChunk[] = [];
+  const selectedIds = new Set<string>();
   const perSource = new Map<string, number>();
-  const maxPerSource = limit <= 6 ? 2 : 3;
+  const uniqueSourceCount = new Set(chunks.map((chunk) => chunk.sourceId)).size;
+  const maxPerSource = uniqueSourceCount <= 1 ? Number.POSITIVE_INFINITY : 2;
 
-  for (const chunk of chunks) {
+  function addChunk(chunk: RetrievedChunk) {
+    if (selectedIds.has(chunk.id)) return false;
     const sourceCount = perSource.get(chunk.sourceId) ?? 0;
-    if (sourceCount >= maxPerSource) continue;
+    if (sourceCount >= maxPerSource) return false;
     selected.push(chunk);
+    selectedIds.add(chunk.id);
     perSource.set(chunk.sourceId, sourceCount + 1);
-    if (selected.length >= limit) return selected;
+    return true;
+  }
+
+  for (const category of preferredCategoryOrder) {
+    const candidate = chunks.find((chunk) => chunk.metadata.category === category && !selectedIds.has(chunk.id));
+    if (candidate) {
+      addChunk(candidate);
+      if (selected.length >= limit) return selected;
+    }
   }
 
   for (const chunk of chunks) {
-    if (selected.some((item) => item.id === chunk.id)) continue;
-    selected.push(chunk);
+    addChunk(chunk);
     if (selected.length >= limit) break;
   }
 
@@ -131,5 +168,5 @@ export function retrieveChunks(query: string, chunks: SourceChunk[], limit = 6):
     .filter((chunk) => chunk.score > 0)
     .sort((a, b) => b.score - a.score || categoryPriority(a.metadata.category) - categoryPriority(b.metadata.category));
 
-  return diversifyChunks(scored, limit);
+  return diversifyChunks(dedupeRetrievedCitations(scored), limit);
 }

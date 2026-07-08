@@ -1,5 +1,7 @@
 # Germany Path Finder
 
+Live Demo: https://germany-path-finder.vercel.app/
+
 Germany Path Finder is a local-first RAG portfolio MVP for exploring residence and career transition paths in Germany with owner-curated official sources, user-reviewed profile data, and source-bound AI explanations.
 
 It is not legal advice. It is a decision-support demo that keeps official evidence, private user documents, and AI explanations separated.
@@ -8,7 +10,7 @@ It is not legal advice. It is a decision-support demo that keeps official eviden
 
 ## Live Demo
 
-Live demo: coming soon.
+https://germany-path-finder.vercel.app/
 
 ## Screenshots
 

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyRound, ShieldAlert } from "lucide-react";
 import type { AppSettings } from "../domain/types";
-import { providerPresets, saveSettings } from "../ai/settings";
+import { normalizeSettings, providerPresets, saveSettings } from "../ai/settings";
 import { testAiConnection } from "../ai/client";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -20,6 +20,13 @@ export function SettingsDialog({ open, settings, onOpenChange, onSave }: Setting
   const [testState, setTestState] = useState<"idle" | "testing" | "ok" | "error">("idle");
   const [message, setMessage] = useState("");
 
+  useEffect(() => {
+    if (!open) return;
+    setDraft(settings);
+    setTestState("idle");
+    setMessage("");
+  }, [open, settings]);
+
   function updateField(field: keyof AppSettings, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
   }
@@ -37,12 +44,16 @@ export function SettingsDialog({ open, settings, onOpenChange, onSave }: Setting
   }
 
   async function handleTest() {
+    const normalized = normalizeSettings(draft);
     setTestState("testing");
     setMessage("");
     try {
-      await testAiConnection(draft);
+      await testAiConnection(normalized);
+      saveSettings(normalized);
+      setDraft(normalized);
+      onSave(normalized);
       setTestState("ok");
-      setMessage("Connection succeeded.");
+      setMessage("Connection succeeded. Settings saved locally.");
     } catch (error) {
       setTestState("error");
       setMessage(error instanceof Error ? error.message : "Connection failed.");
@@ -50,8 +61,9 @@ export function SettingsDialog({ open, settings, onOpenChange, onSave }: Setting
   }
 
   function handleSave() {
-    saveSettings(draft);
-    onSave(draft);
+    const normalized = normalizeSettings(draft);
+    saveSettings(normalized);
+    onSave(normalized);
     onOpenChange(false);
   }
 

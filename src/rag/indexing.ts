@@ -1,5 +1,5 @@
 import type { KnowledgeSource } from "../domain/types";
-import { replaceChunksForSource } from "../storage/repository";
+import { clearPublicOfficialChunks, replaceChunksForSource } from "../storage/repository";
 import { createOfficialChunks } from "./chunking";
 import { fetchAndExtractPdf, fetchAndExtractText } from "./pdf";
 
@@ -61,6 +61,7 @@ export async function indexPreloadedOfficialSources(
   onProgress?: (result: SourceIndexResult) => void,
 ) {
   const results: SourceIndexResult[] = [];
+  await clearPublicOfficialChunks();
 
   for (const source of sources) {
     const result = await indexPreloadedOfficialSource(source);

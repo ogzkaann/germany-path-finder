@@ -1,5 +1,5 @@
 import type { AppSettings } from "../domain/types";
-import { hasUsableAiSettings } from "./settings";
+import { hasUsableAiSettings, normalizeSettings } from "./settings";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -13,18 +13,20 @@ function chatCompletionsUrl(endpoint: string) {
 }
 
 export async function callOpenAICompatible(settings: AppSettings, messages: ChatMessage[]) {
-  if (!hasUsableAiSettings(settings)) {
+  const requestSettings = normalizeSettings(settings);
+
+  if (!hasUsableAiSettings(requestSettings)) {
     throw new Error("AI settings are incomplete.");
   }
 
-  const response = await fetch(chatCompletionsUrl(settings.endpoint), {
+  const response = await fetch(chatCompletionsUrl(requestSettings.endpoint), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${settings.apiKey}`,
+      Authorization: `Bearer ${requestSettings.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: settings.model,
+      model: requestSettings.model,
       messages,
       temperature: 0.1,
     }),

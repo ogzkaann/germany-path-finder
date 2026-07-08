@@ -3,7 +3,7 @@ import { BookOpenCheck, Code2, DatabaseZap, FileWarning, Loader2, RefreshCw } fr
 import type { KnowledgeManifest, KnowledgeSource } from "../domain/types";
 import { createManualOfficialChunks } from "../rag/chunking";
 import { indexPreloadedOfficialSource, indexPreloadedOfficialSources, type SourceIndexResult } from "../rag/indexing";
-import { getIndexedSourceIds, replaceChunksForSource } from "../storage/repository";
+import { getOfficialIndexStats, replaceChunksForSource } from "../storage/repository";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -89,13 +89,17 @@ function diagnosticForSource(source: KnowledgeSource, indexed: boolean, message 
 
 export function VaultPage({ manifest, onDataChange }: VaultPageProps) {
   const [indexedIds, setIndexedIds] = useState<string[]>([]);
+  const [indexedChunkCount, setIndexedChunkCount] = useState(0);
+  const [indexResults, setIndexResults] = useState<Record<string, SourceIndexResult>>({});
   const [manualText, setManualText] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<Record<string, string>>({});
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
   const [indexingAll, setIndexingAll] = useState(false);
 
   async function refreshIndexed() {
-    setIndexedIds(await getIndexedSourceIds());
+    const stats = await getOfficialIndexStats();
+    setIndexedIds(stats.indexedSourceIds);
+    setIndexedChunkCount(stats.indexedChunkCount);
   }
 
   useEffect(() => {
@@ -104,6 +108,7 @@ export function VaultPage({ manifest, onDataChange }: VaultPageProps) {
 
   function recordResult(result: SourceIndexResult) {
     setStatus((current) => ({ ...current, [result.sourceId]: result.message }));
+    setIndexResults((current) => ({ ...current, [result.sourceId]: result }));
   }
 
   async function indexPdf(source: KnowledgeSource) {
@@ -146,9 +151,9 @@ export function VaultPage({ manifest, onDataChange }: VaultPageProps) {
   }
 
   const availableCount = manifest?.sources.filter((source) => source.status === "available").length ?? 0;
-  const missingCount = manifest?.sources.filter((source) => source.status === "missing").length ?? 0;
-  const placeholderCount = manifest?.sources.filter((source) => source.status === "placeholder").length ?? 0;
-  const failedCount = Object.values(status).filter((message) => message.toLowerCase().includes("failed")).length;
+  const indexedAvailableCount =
+    manifest?.sources.filter((source) => source.status === "available" && indexedIds.includes(source.id)).length ?? indexedIds.length;
+  const failedCount = Object.values(indexResults).filter((result) => result.state === "failed" || result.state === "missing").length;
   const categoryCounts = manifest?.sources.reduce<Record<string, number>>((counts, source) => {
     counts[source.category] = (counts[source.category] ?? 0) + 1;
     return counts;
@@ -190,26 +195,28 @@ export function VaultPage({ manifest, onDataChange }: VaultPageProps) {
       <div className="grid gap-3 md:grid-cols-4">
         <Card className="shadow-none">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold text-muted-foreground">Manifest entries</p>
-            <p className="mt-1 text-2xl font-semibold">{manifest?.sources.length ?? 0}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold text-muted-foreground">Available files</p>
+            <p className="text-xs font-semibold text-muted-foreground">Available sources</p>
             <p className="mt-1 text-2xl font-semibold">{availableCount}</p>
           </CardContent>
         </Card>
         <Card className="shadow-none">
           <CardContent className="p-4">
             <p className="text-xs font-semibold text-muted-foreground">Indexed sources</p>
-            <p className="mt-1 text-2xl font-semibold">{indexedIds.length}</p>
+            <p className="mt-1 text-2xl font-semibold">
+              {indexedAvailableCount}/{availableCount}
+            </p>
           </CardContent>
         </Card>
         <Card className="shadow-none">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold text-muted-foreground">Missing / failed</p>
-            <p className="mt-1 text-2xl font-semibold">{Math.max(missingCount + placeholderCount + failedCount, diagnosticRows.length)}</p>
+            <p className="text-xs font-semibold text-muted-foreground">Indexed chunks</p>
+            <p className="mt-1 text-2xl font-semibold">{indexedChunkCount}</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-none">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold text-muted-foreground">Failed sources</p>
+            <p className="mt-1 text-2xl font-semibold">{failedCount}</p>
           </CardContent>
         </Card>
       </div>
